@@ -21,6 +21,10 @@ set(CORE_SOURCES
     src/core/validate.cpp
 )
 
+set(FEATURE_SOURCES
+    src/features/cpufreq/cpufreq.cpp
+)
+
 set(CLI_SOURCES
     src/cli/args.cpp
     src/cli/commands.cpp
@@ -29,10 +33,17 @@ set(CLI_SOURCES
 add_executable(aesterctl
     src/main.cpp
     ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
     ${CLI_SOURCES}
 )
 
 add_executable(test_validate
     tests/test_validate.cpp
     ${CORE_SOURCES}
+)
+
+add_executable(test_cpufreq
+    tests/test_cpufreq.cpp
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
 )
