@@ -3,9 +3,10 @@ name: Build & Package Aester Module
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -42,8 +43,13 @@ jobs:
           zip -r9 ../dist/aester-backend-1.0.0.zip . -x "bin/.keep"
           cd ..
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aester-backend-1.0.0
-          path: dist/aester-backend-1.0.0.zip
+      - name: Publish / Overwrite Continuous Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Buat atau timpa tag release 'nightly' dengan binary & zip terbaru
+          gh release create nightly dist/aester-backend-1.0.0.zip build/aesterctl \
+            --title "Continuous Build (Latest)" \
+            --notes "Auto-built from commit ${{ github.sha }}" \
+            --clobber || \
+          gh release upload nightly dist/aester-backend-1.0.0.zip build/aesterctl --clobber
