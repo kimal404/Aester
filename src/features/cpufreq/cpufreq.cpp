@@ -42,7 +42,7 @@ bool verify_with_retry(const std::string& path, uint64_t target_khz, int retries
 
 } // namespace
 
-Result<std::vector<std::string>> get_available_policies() {
+Result<std::vector<std::string>> get_policies() {
     std::string cpufreq_root = paths::get_sysfs_root() + "/devices/system/cpu/cpufreq";
     DIR* dir = ::opendir(cpufreq_root.c_str());
     if (!dir) {
@@ -76,7 +76,7 @@ Result<std::string> get_current_limit() {
 }
 
 Result<std::string> set_limit(const std::string& val_str) {
-    auto policies_res = get_available_policies();
+    auto policies_res = get_policies();
     if (!policies_res.ok()) {
         return Result<std::string>::failure(policies_res.code(), policies_res.message());
     }
