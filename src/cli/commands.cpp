@@ -4,6 +4,7 @@
 #include "core/result.hpp"
 #include "features/cpufreq/cpufreq.hpp"
 #include "features/governor/governor.hpp"
+#include "features/io/io.hpp"
 
 #include <iostream>
 
@@ -85,7 +86,48 @@ int execute_command(const ParsedArgs& args) {
             return static_cast<int>(ExitCode::InvalidArgs);
         }
 
-        case CommandType::Io:
+        case CommandType::Io: {
+            if (args.action == "list") {
+                auto res = io::get_available();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                for (const auto& s : res.value()) {
+                    std::cout << s << "\n";
+                }
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "get") {
+                auto res = io::get_current();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "set") {
+                auto res = io::set_scheduler(args.param);
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "reset") {
+                auto res = io::reset();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            return static_cast<int>(ExitCode::InvalidArgs);
+        }
+
         case CommandType::ApplySaved:
         case CommandType::Status:
             log::error("belum diimplementasi");

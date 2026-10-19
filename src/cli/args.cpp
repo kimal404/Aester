@@ -76,11 +76,22 @@ ParsedArgs parse_args(int argc, char* argv[]) {
             parsed.error_message = "io memerlukan aksi (list, get, set, reset)";
             return parsed;
         }
-        parsed.action = argv[2];
-        if (parsed.action == "set" && argc >= 4) {
-            parsed.param = argv[3];
+        std::string action = argv[2];
+        parsed.action = action;
+        if (action == "list" || action == "get" || action == "reset") {
+            parsed.valid = true;
+            return parsed;
         }
-        parsed.valid = true;
+        if (action == "set") {
+            if (argc < 4) {
+                parsed.error_message = "io set memerlukan nama scheduler";
+                return parsed;
+            }
+            parsed.param = argv[3];
+            parsed.valid = true;
+            return parsed;
+        }
+        parsed.error_message = "aksi io tidak valid: " + action;
         return parsed;
     }
 

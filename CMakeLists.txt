@@ -24,6 +24,7 @@ set(CORE_SOURCES
 set(FEATURE_SOURCES
     src/features/cpufreq/cpufreq.cpp
     src/features/governor/governor.cpp
+    src/features/io/io.cpp
 )
 
 set(CLI_SOURCES
@@ -51,6 +52,12 @@ add_executable(test_cpufreq
 
 add_executable(test_governor
     tests/test_governor.cpp
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
+)
+
+add_executable(test_io
+    tests/test_io.cpp
     ${CORE_SOURCES}
     ${FEATURE_SOURCES}
 )
