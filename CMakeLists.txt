@@ -25,6 +25,7 @@ set(FEATURE_SOURCES
     src/features/cpufreq/cpufreq.cpp
     src/features/governor/governor.cpp
     src/features/io/io.cpp
+    src/features/system/system.cpp
 )
 
 set(CLI_SOURCES

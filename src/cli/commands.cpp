@@ -5,6 +5,7 @@
 #include "features/cpufreq/cpufreq.hpp"
 #include "features/governor/governor.hpp"
 #include "features/io/io.hpp"
+#include "features/system/system.hpp"
 
 #include <iostream>
 
@@ -128,10 +129,25 @@ int execute_command(const ParsedArgs& args) {
             return static_cast<int>(ExitCode::InvalidArgs);
         }
 
-        case CommandType::ApplySaved:
-        case CommandType::Status:
-            log::error("belum diimplementasi");
-            return static_cast<int>(ExitCode::NotSupported);
+        case CommandType::ApplySaved: {
+            auto res = system::apply_saved();
+            if (!res.ok()) {
+                log::error(res.message());
+                return static_cast<int>(res.code());
+            }
+            std::cout << res.value();
+            return static_cast<int>(ExitCode::Ok);
+        }
+
+        case CommandType::Status: {
+            auto res = system::get_status_dump();
+            if (!res.ok()) {
+                log::error(res.message());
+                return static_cast<int>(res.code());
+            }
+            std::cout << res.value();
+            return static_cast<int>(ExitCode::Ok);
+        }
 
         default:
             log::error("perintah tidak didukung");
