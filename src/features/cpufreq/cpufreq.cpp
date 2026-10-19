@@ -6,9 +6,25 @@
 
 #include <algorithm>
 #include <sstream>
+#include <unistd.h>
 
 namespace aester {
 namespace cpufreq {
+
+namespace {
+
+bool verify_with_retry(const std::string& path, const std::string& expected, int retries = 5, useconds_t delay_us = 20000) {
+    for (int i = 0; i < retries; ++i) {
+        usleep(delay_us);
+        auto res = sysfs::read_text(path);
+        if (res.ok() && res.value() == expected) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 std::vector<unsigned long> parse_frequencies(const std::string& text) {
     std::vector<unsigned long> freqs;
@@ -91,8 +107,7 @@ Result<std::string> set_limit(const std::string& percent_str) {
                     return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": gagal memulihkan frekuensi asli");
                 }
 
-                auto verify_res = sysfs::read_text(target_path);
-                if (!verify_res.ok() || verify_res.value() != orig_res.value()) {
+                if (!verify_with_retry(target_path, orig_res.value())) {
                     return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi gagal setelah restore");
                 }
                 state::remove_orig_value(orig_key);
@@ -137,8 +152,7 @@ Result<std::string> set_limit(const std::string& percent_str) {
             return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": gagal menulis scaling_max_freq");
         }
 
-        auto verify_res = sysfs::read_text(target_path);
-        if (!verify_res.ok() || verify_res.value() != final_str) {
+        if (!verify_with_retry(target_path, final_str)) {
             return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi tidak cocok setelah penulisan");
         }
     }

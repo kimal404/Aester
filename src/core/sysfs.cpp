@@ -69,7 +69,8 @@ Result<void> write_text(const std::string& sysfs_path, const std::string& value)
         return Result<void>::failure(ExitCode::WriteOrVerifyFailed, err_msg);
     }
 
-    ofs << value;
+    ofs << value << "\n";
+    ofs.flush();
     if (!ofs.good()) {
         std::string err_msg = full_path + ": write flush failed - " + std::strerror(errno);
         log::error(err_msg);
