@@ -75,7 +75,9 @@ Result<std::string> set_limit(const std::string& percent_str) {
     }
 
     auto pol_res = get_policies();
-    if (!pol_res.ok()) return pol_res;
+    if (!pol_res.ok()) {
+        return Result<std::string>::failure(pol_res.code(), pol_res.message());
+    }
     const auto& policies = pol_res.value();
 
     if (percent_str == "off") {
