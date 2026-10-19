@@ -24,7 +24,8 @@ set(CLI_SOURCES
 
 add_executable(aesterctl
     src/main.cpp
-    ${CORE_SOURCES}${CLI_SOURCES}
+    ${CORE_SOURCES}
+    ${CLI_SOURCES}
 )
 
 add_executable(test_validate
