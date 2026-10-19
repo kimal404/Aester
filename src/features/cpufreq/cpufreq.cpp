@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <dirent.h>
 #include <sstream>
+#include <string>
 #include <unistd.h>
 
 namespace aester {
@@ -15,13 +16,25 @@ namespace cpufreq {
 
 namespace {
 
+uint64_t parse_u64_safe(const std::string& s) {
+    try {
+        if (s.empty()) return 0;
+        return std::stoull(s);
+    } catch (...) {
+        return 0;
+    }
+}
+
 bool verify_with_retry(const std::string& path, uint64_t target_khz, int retries = 10, useconds_t delay_us = 25000) {
     for (int i = 0; i < retries; ++i) {
         usleep(delay_us);
-        auto res = sysfs::read_u64(path);
-        // Valid jika nilai cocok atau terpotong thermal driver PPM (aktual <= target)
-        if (res.ok() && res.value() > 0 && (res.value() == target_khz || res.value() <= target_khz)) {
-            return true;
+        auto res = sysfs::read_text(path);
+        if (res.ok()) {
+            uint64_t actual = parse_u64_safe(res.value());
+            // Valid jika pas target atau terpotong batas thermal driver PPM (aktual <= target)
+            if (actual > 0 && (actual == target_khz || actual <= target_khz)) {
+                return true;
+            }
         }
     }
     return false;
@@ -95,11 +108,16 @@ Result<std::string> set_limit(const std::string& val_str) {
         return Result<std::string>::success("off");
     }
 
-    auto pct_res = validate::validate_percentage(val_str);
-    if (!pct_res.ok()) {
-        return Result<std::string>::failure(pct_res.code(), pct_res.message());
+    if (!validate::is_valid_cpufreq_arg(val_str)) {
+        return Result<std::string>::failure(ExitCode::InvalidArgs, "Nilai limit tidak valid (harus 40..90 atau off): " + val_str);
     }
-    int percent = pct_res.value();
+
+    int percent = 0;
+    try {
+        percent = std::stoi(val_str);
+    } catch (...) {
+        return Result<std::string>::failure(ExitCode::InvalidArgs, "Format limit angka tidak valid: " + val_str);
+    }
 
     for (const auto& pol : policies) {
         std::string policy_path = "devices/system/cpu/cpufreq/" + pol;
@@ -112,12 +130,17 @@ Result<std::string> set_limit(const std::string& val_str) {
             state::save_orig_value("cpufreq_" + pol, cur_max.value());
         }
 
-        auto max_limit_res = sysfs::read_u64(cpuinfo_path);
+        auto max_limit_res = sysfs::read_text(cpuinfo_path);
         if (!max_limit_res.ok()) {
             return Result<std::string>::failure(ExitCode::GeneralError, pol + ": gagal membaca cpuinfo_max_freq");
         }
 
-        uint64_t target_khz = (max_limit_res.value() * percent) / 100;
+        uint64_t max_limit = parse_u64_safe(max_limit_res.value());
+        if (max_limit == 0) {
+            return Result<std::string>::failure(ExitCode::GeneralError, pol + ": nilai cpuinfo_max_freq kosong");
+        }
+
+        uint64_t target_khz = (max_limit * percent) / 100;
 
         auto avail_res = sysfs::read_text(freqs_path);
         if (avail_res.ok()) {
@@ -140,8 +163,8 @@ Result<std::string> set_limit(const std::string& val_str) {
         }
 
         if (!verify_with_retry(cur_max_path, target_khz)) {
-            auto actual = sysfs::read_u64(cur_max_path);
-            std::string act_str = actual.ok() ? std::to_string(actual.value()) : "unknown";
+            auto actual_res = sysfs::read_text(cur_max_path);
+            std::string act_str = actual_res.ok() ? actual_res.value() : "unknown";
             return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": verifikasi gagal (target: " + std::to_string(target_khz) + ", aktual: " + act_str + ")");
         }
     }
