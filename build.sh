@@ -1,7 +1,7 @@
 #!/bin/sh
 
 REPO="kimal404/Aester"
-COMMIT_MSG="${1:-chore: update backend implementation}"
+COMMIT_MSG="${1:-feat: complete batch c governor implementation}"
 CURRENT_DIR="$(pwd)"
 
 echo "==========================================="
@@ -26,29 +26,27 @@ git push origin main || {
 
 COMMIT_SHA=$(git rev-parse HEAD)
 SHORT_SHA=$(git rev-parse --short HEAD)
-echo ">> Target SHA: $SHORT_SHA ($COMMIT_SHA)"
+echo ">> Target SHA: $SHORT_SHA"
 
 # 3. Pantau GitHub Actions
 echo "\n[3/4] Memantau proses build di GitHub Actions..."
 API_URL="https://api.github.com/repos/${REPO}/actions/runs?head_sha=${COMMIT_SHA}"
 
-sleep 4
-
+sleep 6
 START_TIME=$(date +%s)
-TIMEOUT=300
+TIMEOUT=360
 
 while true; do
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
 
     if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-        echo "\n\n[ERROR] Timeout 5 menit tercapai."
-        echo "Periksa status manual di: https://github.com/${REPO}/actions"
+        echo "\n\n[ERROR] Timeout tercapai."
+        echo "Pantau manual di: https://github.com/${REPO}/actions"
         exit 1
     fi
 
     RESP=$(curl -s -H "Accept: application/vnd.github+json" "$API_URL" 2>/dev/null || true)
-
     STATUS=$(echo "$RESP" | grep -m1 '"status":' | sed -n 's/.*"status": "\([^"]*\)".*/\1/p')
     CONCLUSION=$(echo "$RESP" | grep -m1 '"conclusion":' | sed -n 's/.*"conclusion": "\([^"]*\)".*/\1/p')
     RUN_URL=$(echo "$RESP" | grep -m1 '"html_url":' | sed -n 's/.*"html_url": "\([^"]*\)".*/\1/p')
@@ -56,15 +54,15 @@ while true; do
     if [ -z "$STATUS" ]; then
         printf "\r>> Menunggu antrean workflow runner... (%ds)" "$ELAPSED"
     elif [ "$STATUS" != "completed" ]; then
-        printf "\r>> Mengompilasi NDK arm64 [status: %s]... (%ds)" "$STATUS" "$ELAPSED"
+        printf "\r>> Mengompilasi NDK arm64 (Ninja) [status: %s]... (%ds)" "$STATUS" "$ELAPSED"
     else
         echo ""
         if [ "$CONCLUSION" = "success" ]; then
-            echo "\n>> [SUCCESS] Kompilasi NDK & rilis nightly berhasil!"
+            echo "\n>> [SUCCESS] Kompilasi NDK & rilis nightly selesai!"
             break
         else
             echo "\n\n[ERROR] Kompilasi GAGAL! (Conclusion: $CONCLUSION)"
-            echo "Lihat detail log error di: $RUN_URL"
+            echo "Lihat detail log error: $RUN_URL"
             exit 1
         fi
     fi
@@ -86,7 +84,7 @@ su -c "cp '$TMP_BIN' /data/adb/modules/aester/bin/aesterctl && chmod 755 /data/a
     exit 1
 }
 
-echo ">> Verifikasi binary modul aktif:"
+echo ">> Verifikasi binary aktif:"
 su -c "/data/adb/modules/aester/bin/aesterctl version"
 
-echo "\nSemua proses selesai! Binary aesterctl terbaru siap digunakan."
+echo "\nSemua proses selesai! Binary aesterctl siap digunakan."
