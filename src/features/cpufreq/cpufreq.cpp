@@ -1,10 +1,12 @@
 #include "features/cpufreq/cpufreq.hpp"
 #include "core/log.hpp"
+#include "core/paths.hpp"
 #include "core/state.hpp"
 #include "core/sysfs.hpp"
 #include "core/validate.hpp"
 
 #include <algorithm>
+#include <dirent.h>
 #include <sstream>
 #include <unistd.h>
 
@@ -13,11 +15,12 @@ namespace cpufreq {
 
 namespace {
 
-bool verify_with_retry(const std::string& path, const std::string& expected, int retries = 10, useconds_t delay_us = 25000) {
+bool verify_with_retry(const std::string& path, uint64_t target_khz, int retries = 10, useconds_t delay_us = 25000) {
     for (int i = 0; i < retries; ++i) {
         usleep(delay_us);
-        auto res = sysfs::read_text(path);
-        if (res.ok() && res.value() == expected) {
+        auto res = sysfs::read_u64(path);
+        // Valid jika nilai tepat cocok atau terpotong batas thermal PPM (aktual <= target)
+        if (res.ok() && (res.value() == target_khz || res.value() <= target_khz)) {
             return true;
         }
     }
@@ -26,51 +29,25 @@ bool verify_with_retry(const std::string& path, const std::string& expected, int
 
 } // namespace
 
-std::vector<unsigned long> parse_frequencies(const std::string& text) {
-    std::vector<unsigned long> freqs;
-    std::istringstream iss(text);
-    unsigned long val = 0;
-    while (iss >> val) {
-        freqs.push_back(val);
-    }
-    std::sort(freqs.begin(), freqs.end());
-    return freqs;
-}
-
-unsigned long calculate_target_freq(unsigned long max_freq, int percent) {
-    if (percent <= 0) return 0;
-    return (max_freq * static_cast<unsigned long>(percent)) / 100UL;
-}
-
-unsigned long find_closest_freq(const std::vector<unsigned long>& available, unsigned long target) {
-    if (available.empty()) return target;
-
-    unsigned long best = available.front();
-    for (unsigned long f : available) {
-        if (f <= target) {
-            best = f;
-        } else {
-            break;
-        }
-    }
-    return best;
-}
-
-Result<std::vector<std::string>> get_policies() {
-    auto res = sysfs::list_dir("devices/system/cpu/cpufreq");
-    if (!res.ok()) {
-        return Result<std::vector<std::string>>::failure(res.code(), "Gagal membaca direktori cpufreq: " + res.message());
+Result<std::vector<std::string>> get_available_policies() {
+    std::string cpufreq_root = paths::get_sysfs_root() + "/devices/system/cpu/cpufreq";
+    DIR* dir = ::opendir(cpufreq_root.c_str());
+    if (!dir) {
+        return Result<std::vector<std::string>>::failure(ExitCode::GeneralError, "Gagal membuka direktori cpufreq sysfs");
     }
 
     std::vector<std::string> policies;
-    for (const auto& entry : res.value()) {
-        if (entry.rfind("policy", 0) == 0) {
-            policies.push_back(entry);
+    struct dirent* entry;
+    while ((entry = ::readdir(dir)) != nullptr) {
+        std::string name = entry->d_name;
+        if (name.rfind("policy", 0) == 0) {
+            policies.push_back(name);
         }
     }
+    ::closedir(dir);
 
     if (policies.empty()) {
-        return Result<std::vector<std::string>>::failure(ExitCode::NotSupported, "Tidak ada cpufreq policy ditemukan");
+        return Result<std::vector<std::string>>::failure(ExitCode::NotSupported, "Tidak ada cpufreq policy yang ditemukan");
     }
 
     std::sort(policies.begin(), policies.end());
@@ -78,91 +55,99 @@ Result<std::vector<std::string>> get_policies() {
 }
 
 Result<std::string> get_current_limit() {
-    auto res = state::get_config_value("cpufreq");
-    if (!res.ok()) {
-        return Result<std::string>::success("off");
+    auto saved = state::get_config_value("cpufreq");
+    if (saved.ok()) {
+        return Result<std::string>::success(saved.value());
     }
-    return Result<std::string>::success(res.value());
+    return Result<std::string>::success("off");
 }
 
-Result<std::string> set_limit(const std::string& percent_str) {
-    if (!validate::is_valid_cpufreq_arg(percent_str)) {
-        return Result<std::string>::failure(ExitCode::InvalidArgs, "Argumen cpufreq harus 40..90 atau off: " + percent_str);
+Result<std::string> set_limit(const std::string& val_str) {
+    auto policies_res = get_available_policies();
+    if (!policies_res.ok()) {
+        return Result<std::string>::failure(policies_res.code(), policies_res.message());
     }
 
-    auto pol_res = get_policies();
-    if (!pol_res.ok()) {
-        return Result<std::string>::failure(pol_res.code(), pol_res.message());
-    }
-    const auto& policies = pol_res.value();
+    const auto& policies = policies_res.value();
 
-    if (percent_str == "off") {
-        for (const auto& policy : policies) {
-            std::string orig_key = "cpufreq_" + policy;
+    if (val_str == "off") {
+        for (const auto& pol : policies) {
+            std::string orig_key = "cpufreq_" + pol;
             auto orig_res = state::load_orig_value(orig_key);
-            if (orig_res.ok()) {
-                std::string target_path = "devices/system/cpu/cpufreq/" + policy + "/scaling_max_freq";
-                auto write_res = sysfs::write_text(target_path, orig_res.value());
-                if (!write_res.ok()) {
-                    return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": gagal memulihkan frekuensi asli");
-                }
+            std::string max_freq_str;
 
-                if (!verify_with_retry(target_path, orig_res.value())) {
-                    auto cur = sysfs::read_text(target_path);
-                    std::string actual = cur.ok() ? cur.value() : "unknown";
-                    return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi gagal setelah restore (target: " + orig_res.value() + ", aktual: " + actual + ")");
+            if (orig_res.ok()) {
+                max_freq_str = orig_res.value();
+            } else {
+                auto cpuinfo_max = sysfs::read_text("devices/system/cpu/cpufreq/" + pol + "/cpuinfo_max_freq");
+                if (cpuinfo_max.ok()) {
+                    max_freq_str = cpuinfo_max.value();
                 }
+            }
+
+            if (!max_freq_str.empty()) {
+                std::string target_path = "devices/system/cpu/cpufreq/" + pol + "/scaling_max_freq";
+                sysfs::write_text(target_path, max_freq_str);
                 state::remove_orig_value(orig_key);
             }
         }
-        state::set_config_value("cpufreq", "off");
+        state::remove_config_value("cpufreq");
         return Result<std::string>::success("off");
     }
 
-    int percent = std::stoi(percent_str);
+    auto pct_res = validate::validate_percentage(val_str);
+    if (!pct_res.ok()) {
+        return Result<std::string>::failure(pct_res.code(), pct_res.message());
+    }
+    int percent = pct_res.value();
 
-    for (const auto& policy : policies) {
-        std::string pol_base = "devices/system/cpu/cpufreq/" + policy;
+    for (const auto& pol : policies) {
+        std::string policy_path = "devices/system/cpu/cpufreq/" + pol;
+        std::string cur_max_path = policy_path + "/scaling_max_freq";
+        std::string cpuinfo_path = policy_path + "/cpuinfo_max_freq";
+        std::string freqs_path = policy_path + "/scaling_available_frequencies";
 
-        auto cpuinfo_res = sysfs::read_text(pol_base + "/cpuinfo_max_freq");
-        if (!cpuinfo_res.ok()) {
-            return Result<std::string>::failure(ExitCode::GeneralError, policy + ": gagal membaca cpuinfo_max_freq");
-        }
-        unsigned long cpuinfo_max = std::stoul(cpuinfo_res.value());
-
-        auto current_max_res = sysfs::read_text(pol_base + "/scaling_max_freq");
-        if (current_max_res.ok()) {
-            state::save_orig_value("cpufreq_" + policy, current_max_res.value());
-        }
-
-        unsigned long target = calculate_target_freq(cpuinfo_max, percent);
-        unsigned long final_freq = target;
-
-        auto avail_res = sysfs::read_text(pol_base + "/scaling_available_frequencies");
-        if (avail_res.ok() && !avail_res.value().empty()) {
-            auto freqs = parse_frequencies(avail_res.value());
-            final_freq = find_closest_freq(freqs, target);
-        } else {
-            log::info(policy + ": scaling_available_frequencies tidak ditemukan, memakai target mentah");
+        auto cur_max = sysfs::read_text(cur_max_path);
+        if (cur_max.ok()) {
+            state::save_orig_value("cpufreq_" + pol, cur_max.value());
         }
 
-        std::string final_str = std::to_string(final_freq);
-        std::string target_path = pol_base + "/scaling_max_freq";
+        auto max_limit_res = sysfs::read_u64(cpuinfo_path);
+        if (!max_limit_res.ok()) {
+            return Result<std::string>::failure(ExitCode::GeneralError, pol + ": gagal membaca cpuinfo_max_freq");
+        }
 
-        auto write_res = sysfs::write_text(target_path, final_str);
+        uint64_t target_khz = (max_limit_res.value() * percent) / 100;
+
+        auto avail_res = sysfs::read_text(freqs_path);
+        if (avail_res.ok()) {
+            std::istringstream iss(avail_res.value());
+            uint64_t f;
+            uint64_t best_match = 0;
+            while (iss >> f) {
+                if (f <= target_khz && f > best_match) {
+                    best_match = f;
+                }
+            }
+            if (best_match > 0) {
+                target_khz = best_match;
+            }
+        }
+
+        auto write_res = sysfs::write_u64(cur_max_path, target_khz);
         if (!write_res.ok()) {
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": gagal menulis scaling_max_freq");
+            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": gagal menulis scaling_max_freq");
         }
 
-        if (!verify_with_retry(target_path, final_str)) {
-            auto cur = sysfs::read_text(target_path);
-            std::string actual = cur.ok() ? cur.value() : "unknown";
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi tidak cocok (target: " + final_str + ", aktual: " + actual + ")");
+        if (!verify_with_retry(cur_max_path, target_khz)) {
+            auto actual = sysfs::read_u64(cur_max_path);
+            std::string act_str = actual.ok() ? std::to_string(actual.value()) : "unknown";
+            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": verifikasi gagal (target: " + std::to_string(target_khz) + ", aktual: " + act_str + ")");
         }
     }
 
-    state::set_config_value("cpufreq", percent_str);
-    return Result<std::string>::success(percent_str);
+    state::set_config_value("cpufreq", val_str);
+    return Result<std::string>::success(val_str);
 }
 
 } // namespace cpufreq

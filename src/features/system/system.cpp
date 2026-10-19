@@ -22,7 +22,7 @@ Result<std::string> apply_saved() {
     bool any_applied = false;
 
     // 1. Terapkan Limit CPU Freq jika ada
-    auto it_cpu = config.find("cpufreq_limit");
+    auto it_cpu = config.find("cpufreq");
     if (it_cpu != config.end() && !it_cpu->second.empty()) {
         auto res = cpufreq::set_limit(it_cpu->second);
         if (res.ok()) {
