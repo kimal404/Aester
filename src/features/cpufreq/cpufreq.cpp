@@ -13,7 +13,7 @@ namespace cpufreq {
 
 namespace {
 
-bool verify_with_retry(const std::string& path, const std::string& expected, int retries = 5, useconds_t delay_us = 20000) {
+bool verify_with_retry(const std::string& path, const std::string& expected, int retries = 10, useconds_t delay_us = 25000) {
     for (int i = 0; i < retries; ++i) {
         usleep(delay_us);
         auto res = sysfs::read_text(path);
@@ -108,7 +108,9 @@ Result<std::string> set_limit(const std::string& percent_str) {
                 }
 
                 if (!verify_with_retry(target_path, orig_res.value())) {
-                    return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi gagal setelah restore");
+                    auto cur = sysfs::read_text(target_path);
+                    std::string actual = cur.ok() ? cur.value() : "unknown";
+                    return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi gagal setelah restore (target: " + orig_res.value() + ", aktual: " + actual + ")");
                 }
                 state::remove_orig_value(orig_key);
             }
@@ -153,7 +155,9 @@ Result<std::string> set_limit(const std::string& percent_str) {
         }
 
         if (!verify_with_retry(target_path, final_str)) {
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi tidak cocok setelah penulisan");
+            auto cur = sysfs::read_text(target_path);
+            std::string actual = cur.ok() ? cur.value() : "unknown";
+            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi tidak cocok (target: " + final_str + ", aktual: " + actual + ")");
         }
     }
 
