@@ -3,6 +3,7 @@
 #include "core/paths.hpp"
 #include "core/result.hpp"
 #include "features/cpufreq/cpufreq.hpp"
+#include "features/governor/governor.hpp"
 
 #include <iostream>
 
@@ -42,7 +43,48 @@ int execute_command(const ParsedArgs& args) {
             return static_cast<int>(ExitCode::InvalidArgs);
         }
 
-        case CommandType::Governor:
+        case CommandType::Governor: {
+            if (args.action == "list") {
+                auto res = governor::get_available();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                for (const auto& gov : res.value()) {
+                    std::cout << gov << "\n";
+                }
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "get") {
+                auto res = governor::get_current();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "set") {
+                auto res = governor::set_governor(args.param);
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            if (args.action == "reset") {
+                auto res = governor::reset();
+                if (!res.ok()) {
+                    log::error(res.message());
+                    return static_cast<int>(res.code());
+                }
+                std::cout << res.value() << "\n";
+                return static_cast<int>(ExitCode::Ok);
+            }
+            return static_cast<int>(ExitCode::InvalidArgs);
+        }
+
         case CommandType::Io:
         case CommandType::ApplySaved:
         case CommandType::Status:

@@ -2,6 +2,7 @@
 
 REPO="kimal404/Aester"
 COMMIT_MSG="${1:-chore: update backend implementation}"
+CURRENT_DIR="$(pwd)"
 
 echo "==========================================="
 echo "   AESTER AUTOMATED CI & OTA DEPLOYMENT    "
@@ -31,11 +32,10 @@ echo ">> Target SHA: $SHORT_SHA ($COMMIT_SHA)"
 echo "\n[3/4] Memantau proses build di GitHub Actions..."
 API_URL="https://api.github.com/repos/${REPO}/actions/runs?head_sha=${COMMIT_SHA}"
 
-# Tunggu sejenak agar webhook GitHub mendaftarkan workflow run
 sleep 4
 
 START_TIME=$(date +%s)
-TIMEOUT=300 # 5 menit
+TIMEOUT=300
 
 while true; do
     NOW=$(date +%s)
@@ -72,10 +72,17 @@ while true; do
     sleep 5
 done
 
-# 4. Unduh & Timpa Binary Modul di Root
+# 4. Unduh via Termux curl & Timpa Binary via Root
 echo "\n[4/4] Mengunduh binary 'nightly' dan menimpa modul root..."
-su -c "curl -sL https://github.com/${REPO}/releases/download/nightly/aesterctl -o /data/adb/modules/aester/bin/aesterctl && chmod 755 /data/adb/modules/aester/bin/aesterctl" || {
-    echo "\n[ERROR] Gagal mengunduh atau menimpa binary aesterctl ke /data/adb/modules/aester/bin/."
+TMP_BIN="${CURRENT_DIR}/aesterctl_nightly"
+
+curl -sL "https://github.com/${REPO}/releases/download/nightly/aesterctl" -o "$TMP_BIN" || {
+    echo "\n[ERROR] Gagal mengunduh binary melalui curl Termux."
+    exit 1
+}
+
+su -c "cp '$TMP_BIN' /data/adb/modules/aester/bin/aesterctl && chmod 755 /data/adb/modules/aester/bin/aesterctl && rm -f '$TMP_BIN'" || {
+    echo "\n[ERROR] Gagal menyalin binary ke /data/adb/modules/aester/bin/."
     exit 1
 }
 
