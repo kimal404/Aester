@@ -97,6 +97,39 @@ Result<void> set_config_value(const std::string& key, const std::string& value) 
     return Result<void>::success();
 }
 
+Result<void> remove_config_value(const std::string& key) {
+    auto cfg_res = load_config();
+    if (!cfg_res.ok()) return Result<void>::success();
+
+    auto map = cfg_res.value();
+    auto it = map.find(key);
+    if (it == map.end()) {
+        return Result<void>::success();
+    }
+    map.erase(it);
+
+    std::string cfg_path = paths::get_config_path();
+    std::string tmp_path = cfg_path + ".tmp." + std::to_string(::getpid());
+
+    std::ofstream ofs(tmp_path);
+    if (!ofs.is_open()) {
+        return Result<void>::failure(ExitCode::GeneralError, "Cannot open tmp config: " + std::string(std::strerror(errno)));
+    }
+
+    for (const auto& pair : map) {
+        ofs << pair.first << "=" << pair.second << "\n";
+    }
+    ofs.flush();
+    ofs.close();
+
+    if (::rename(tmp_path.c_str(), cfg_path.c_str()) != 0) {
+        ::unlink(tmp_path.c_str());
+        return Result<void>::failure(ExitCode::GeneralError, "Atomic rename config failed: " + std::string(std::strerror(errno)));
+    }
+
+    return Result<void>::success();
+}
+
 Result<void> save_orig_value(const std::string& name, const std::string& value) {
     init_dirs();
     std::string path = paths::get_orig_dir() + "/" + name;
