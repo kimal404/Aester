@@ -29,7 +29,7 @@ Result<std::string> apply_saved() {
             out << "[cpufreq] diterapkan: " << res.value() << "\n";
             any_applied = true;
         } else {
-            log::warn("apply-saved: gagal menerapkan cpufreq limit: " + res.message());
+            log::error("apply-saved: gagal menerapkan cpufreq limit: " + res.message());
         }
     }
 
@@ -41,7 +41,7 @@ Result<std::string> apply_saved() {
             out << "[governor] diterapkan: " << res.value() << "\n";
             any_applied = true;
         } else {
-            log::warn("apply-saved: gagal menerapkan governor: " + res.message());
+            log::error("apply-saved: gagal menerapkan governor: " + res.message());
         }
     }
 
@@ -53,7 +53,7 @@ Result<std::string> apply_saved() {
             out << "[io_scheduler] diterapkan: " << res.value() << "\n";
             any_applied = true;
         } else {
-            log::warn("apply-saved: gagal menerapkan io scheduler: " + res.message());
+            log::error("apply-saved: gagal menerapkan io scheduler: " + res.message());
         }
     }
 
