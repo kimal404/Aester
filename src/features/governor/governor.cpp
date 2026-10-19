@@ -5,6 +5,8 @@
 #include "core/validate.hpp"
 #include "features/cpufreq/cpufreq.hpp"
 
+#include <algorithm>
+#include <cstdlib>
 #include <sstream>
 #include <unistd.h>
 
@@ -13,13 +15,18 @@ namespace governor {
 
 namespace {
 
-bool verify_with_retry(const std::string& path, const std::string& expected, int retries = 10, useconds_t delay_us = 25000) {
+constexpr int VERIFY_MAX_RETRIES = 20;
+constexpr useconds_t VERIFY_RETRY_DELAY_US = 25000; // 20 * 25 ms = 500 ms total
+
+bool verify_with_retry(const std::string& path, const std::string& expected,
+                       int retries = VERIFY_MAX_RETRIES,
+                       useconds_t delay_us = VERIFY_RETRY_DELAY_US) {
     for (int i = 0; i < retries; ++i) {
-        usleep(delay_us);
         auto res = sysfs::read_text(path);
         if (res.ok() && res.value() == expected) {
             return true;
         }
+        usleep(delay_us);
     }
     return false;
 }
@@ -69,7 +76,6 @@ Result<std::string> get_current() {
         return Result<std::string>::success(saved.value());
     }
 
-    // Jika belum pernah disetel lewat aesterctl, baca governor aktif policy0
     auto read_res = sysfs::read_text("devices/system/cpu/cpufreq/policy0/scaling_governor");
     if (!read_res.ok()) {
         return Result<std::string>::failure(ExitCode::GeneralError, "Gagal membaca scaling_governor policy0");
@@ -97,25 +103,73 @@ Result<std::string> set_governor(const std::string& name) {
     }
     const auto& policies = pol_res.value();
 
+    // 1. Catat nilai aktual sebelum penulisan untuk pemulihan (rollback)
+    std::vector<std::pair<std::string, std::string>> prev_values;
     for (const auto& policy : policies) {
-        std::string pol_base = "devices/system/cpu/cpufreq/" + policy;
-        std::string target_path = pol_base + "/scaling_governor";
+        std::string target_path = "devices/system/cpu/cpufreq/" + policy + "/scaling_governor";
+        auto cur_res = sysfs::read_text(target_path);
+        prev_values.emplace_back(policy, cur_res.ok() ? cur_res.value() : "");
+    }
 
-        auto current_res = sysfs::read_text(target_path);
-        if (current_res.ok()) {
-            state::save_orig_value("governor_" + policy, current_res.value());
+    // 2. Periksa mode dry-run
+    const char* dr_env = std::getenv("AESTER_DRYRUN");
+    bool is_dry_run = (dr_env != nullptr && dr_env[0] == '1');
+    if (is_dry_run) {
+        std::string targets_str;
+        for (size_t i = 0; i < policies.size(); ++i) {
+            targets_str += (i == 0 ? "" : ", ") + policies[i];
         }
+        log::debug("dry-run governor set target policies: " + targets_str);
+        for (const auto& policy : policies) {
+            std::string target_path = "devices/system/cpu/cpufreq/" + policy + "/scaling_governor";
+            sysfs::write_text(target_path, name);
+        }
+        return Result<std::string>::success("dry-run " + name);
+    }
 
+    // 3. Simpan nilai asal ke orig state sebelum mengubah sysfs
+    for (const auto& item : prev_values) {
+        if (!item.second.empty()) {
+            state::save_orig_value("governor_" + item.first, item.second);
+        }
+    }
+
+    // 4. Tulis ke SEMUA target dulu tanpa berhenti di kegagalan pertama
+    std::vector<std::string> failed_targets;
+    for (const auto& policy : policies) {
+        std::string target_path = "devices/system/cpu/cpufreq/" + policy + "/scaling_governor";
         auto write_res = sysfs::write_text(target_path, name);
         if (!write_res.ok()) {
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": gagal menulis scaling_governor");
+            failed_targets.push_back(policy);
         }
+    }
 
-        if (!verify_with_retry(target_path, name)) {
-            auto cur = sysfs::read_text(target_path);
-            std::string actual = cur.ok() ? cur.value() : "unknown";
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, policy + ": verifikasi governor gagal (target: " + name + ", aktual: " + actual + ")");
+    // 5. Baca ulang SEMUA target
+    for (const auto& policy : policies) {
+        if (std::find(failed_targets.begin(), failed_targets.end(), policy) != failed_targets.end()) {
+            continue;
         }
+        std::string target_path = "devices/system/cpu/cpufreq/" + policy + "/scaling_governor";
+        if (!verify_with_retry(target_path, name)) {
+            failed_targets.push_back(policy);
+        }
+    }
+
+    // 6. Jika ada target yang gagal: pemulihan best-effort dan exit 4
+    if (!failed_targets.empty()) {
+        for (const auto& item : prev_values) {
+            if (!item.second.empty()) {
+                std::string target_path = "devices/system/cpu/cpufreq/" + item.first + "/scaling_governor";
+                sysfs::write_text(target_path, item.second);
+                state::remove_orig_value("governor_" + item.first);
+            }
+        }
+        std::string fail_list;
+        for (size_t i = 0; i < failed_targets.size(); ++i) {
+            fail_list += (i == 0 ? "" : ", ") + failed_targets[i];
+        }
+        return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed,
+            "verifikasi governor gagal pada target: " + fail_list);
     }
 
     state::set_config_value("governor", name);

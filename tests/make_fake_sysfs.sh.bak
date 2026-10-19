@@ -5,7 +5,6 @@ DEST="${1:-/tmp/aester_fake_sysfs}"
 rm -rf "$DEST"
 mkdir -p "$DEST"
 
-# 1. Mock cpufreq policy
 for p in 0 4 7; do
     POL="$DEST/devices/system/cpu/cpufreq/policy$p"
     mkdir -p "$POL"
@@ -34,7 +33,6 @@ for p in 0 4 7; do
     esac
 done
 
-# 2. Mock block devices
 mkdir -p "$DEST/block/sda/queue" "$DEST/block/sdb/queue" "$DEST/block/loop0/queue" "$DEST/block/zram0"
 echo "[mq-deadline] none" > "$DEST/block/sda/queue/scheduler"
 echo "[mq-deadline] none kyber" > "$DEST/block/sdb/queue/scheduler"

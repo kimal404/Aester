@@ -6,6 +6,7 @@
 #include "core/validate.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <dirent.h>
 #include <sstream>
 #include <string>
@@ -16,6 +17,9 @@ namespace cpufreq {
 
 namespace {
 
+constexpr int VERIFY_MAX_RETRIES = 20;
+constexpr useconds_t VERIFY_RETRY_DELAY_US = 25000; // 20 * 25 ms = 500 ms total
+
 uint64_t parse_u64_safe(const std::string& s) {
     try {
         if (s.empty()) return 0;
@@ -25,17 +29,18 @@ uint64_t parse_u64_safe(const std::string& s) {
     }
 }
 
-bool verify_with_retry(const std::string& path, uint64_t target_khz, int retries = 10, useconds_t delay_us = 25000) {
+bool verify_with_retry(const std::string& path, uint64_t target_khz,
+                       int retries = VERIFY_MAX_RETRIES,
+                       useconds_t delay_us = VERIFY_RETRY_DELAY_US) {
     for (int i = 0; i < retries; ++i) {
-        usleep(delay_us);
         auto res = sysfs::read_text(path);
         if (res.ok()) {
             uint64_t actual = parse_u64_safe(res.value());
-            // Valid jika pas target atau terpotong batas thermal driver PPM (aktual <= target)
             if (actual > 0 && (actual == target_khz || actual <= target_khz)) {
                 return true;
             }
         }
+        usleep(delay_us);
     }
     return false;
 }
@@ -80,10 +85,25 @@ Result<std::string> set_limit(const std::string& val_str) {
     if (!policies_res.ok()) {
         return Result<std::string>::failure(policies_res.code(), policies_res.message());
     }
-
     const auto& policies = policies_res.value();
 
+    const char* dr_env = std::getenv("AESTER_DRYRUN");
+    bool is_dry_run = (dr_env != nullptr && dr_env[0] == '1');
+
     if (val_str == "off") {
+        if (is_dry_run) {
+            std::string targets_str;
+            for (size_t i = 0; i < policies.size(); ++i) {
+                targets_str += (i == 0 ? "" : ", ") + policies[i];
+            }
+            log::debug("dry-run cpufreq set target policies: " + targets_str);
+            for (const auto& pol : policies) {
+                std::string target_path = "devices/system/cpu/cpufreq/" + pol + "/scaling_max_freq";
+                sysfs::write_text(target_path, "off");
+            }
+            return Result<std::string>::success("dry-run off");
+        }
+
         for (const auto& pol : policies) {
             std::string orig_key = "cpufreq_" + pol;
             auto orig_res = state::load_orig_value(orig_key);
@@ -119,16 +139,41 @@ Result<std::string> set_limit(const std::string& val_str) {
         return Result<std::string>::failure(ExitCode::InvalidArgs, "Format limit angka tidak valid: " + val_str);
     }
 
+    // 1. Baca nilai sebelum penulisan untuk rollback
+    std::vector<std::pair<std::string, std::string>> prev_values;
+    for (const auto& pol : policies) {
+        std::string cur_max_path = "devices/system/cpu/cpufreq/" + pol + "/scaling_max_freq";
+        auto cur_res = sysfs::read_text(cur_max_path);
+        prev_values.emplace_back(pol, cur_res.ok() ? cur_res.value() : "");
+    }
+
+    // 2. Periksa mode dry-run
+    if (is_dry_run) {
+        std::string targets_str;
+        for (size_t i = 0; i < policies.size(); ++i) {
+            targets_str += (i == 0 ? "" : ", ") + policies[i];
+        }
+        log::debug("dry-run cpufreq set target policies: " + targets_str);
+        for (const auto& pol : policies) {
+            std::string cur_max_path = "devices/system/cpu/cpufreq/" + pol + "/scaling_max_freq";
+            sysfs::write_text(cur_max_path, val_str);
+        }
+        return Result<std::string>::success("dry-run " + val_str);
+    }
+
+    // 3. Simpan nilai asal ke orig state
+    for (const auto& item : prev_values) {
+        if (!item.second.empty()) {
+            state::save_orig_value("cpufreq_" + item.first, item.second);
+        }
+    }
+
+    // 4. Hitung target frekuensi untuk tiap policy
+    std::vector<std::pair<std::string, uint64_t>> target_freqs;
     for (const auto& pol : policies) {
         std::string policy_path = "devices/system/cpu/cpufreq/" + pol;
-        std::string cur_max_path = policy_path + "/scaling_max_freq";
         std::string cpuinfo_path = policy_path + "/cpuinfo_max_freq";
         std::string freqs_path = policy_path + "/scaling_available_frequencies";
-
-        auto cur_max = sysfs::read_text(cur_max_path);
-        if (cur_max.ok()) {
-            state::save_orig_value("cpufreq_" + pol, cur_max.value());
-        }
 
         auto max_limit_res = sysfs::read_text(cpuinfo_path);
         if (!max_limit_res.ok()) {
@@ -141,7 +186,6 @@ Result<std::string> set_limit(const std::string& val_str) {
         }
 
         uint64_t target_khz = (max_limit * percent) / 100;
-
         auto avail_res = sysfs::read_text(freqs_path);
         if (avail_res.ok()) {
             std::istringstream iss(avail_res.value());
@@ -156,17 +200,45 @@ Result<std::string> set_limit(const std::string& val_str) {
                 target_khz = best_match;
             }
         }
+        target_freqs.emplace_back(pol, target_khz);
+    }
 
-        auto write_res = sysfs::write_text(cur_max_path, std::to_string(target_khz));
+    // 5. Tulis ke SEMUA target policy terlebih dahulu
+    std::vector<std::string> failed_policies;
+    for (const auto& item : target_freqs) {
+        std::string cur_max_path = "devices/system/cpu/cpufreq/" + item.first + "/scaling_max_freq";
+        auto write_res = sysfs::write_text(cur_max_path, std::to_string(item.second));
         if (!write_res.ok()) {
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": gagal menulis scaling_max_freq");
+            failed_policies.push_back(item.first);
         }
+    }
 
-        if (!verify_with_retry(cur_max_path, target_khz)) {
-            auto actual_res = sysfs::read_text(cur_max_path);
-            std::string act_str = actual_res.ok() ? actual_res.value() : "unknown";
-            return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": verifikasi gagal (target: " + std::to_string(target_khz) + ", aktual: " + act_str + ")");
+    // 6. Baca ulang SEMUA target policy
+    for (const auto& item : target_freqs) {
+        if (std::find(failed_policies.begin(), failed_policies.end(), item.first) != failed_policies.end()) {
+            continue;
         }
+        std::string cur_max_path = "devices/system/cpu/cpufreq/" + item.first + "/scaling_max_freq";
+        if (!verify_with_retry(cur_max_path, item.second)) {
+            failed_policies.push_back(item.first);
+        }
+    }
+
+    // 7. Jika ada kegagalan: pemulihan best-effort dan exit 4
+    if (!failed_policies.empty()) {
+        for (const auto& item : prev_values) {
+            if (!item.second.empty()) {
+                std::string cur_max_path = "devices/system/cpu/cpufreq/" + item.first + "/scaling_max_freq";
+                sysfs::write_text(cur_max_path, item.second);
+                state::remove_orig_value("cpufreq_" + item.first);
+            }
+        }
+        std::string fail_list;
+        for (size_t i = 0; i < failed_policies.size(); ++i) {
+            fail_list += (i == 0 ? "" : ", ") + failed_policies[i];
+        }
+        return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed,
+            "verifikasi cpufreq gagal pada target: " + fail_list);
     }
 
     state::set_config_value("cpufreq", val_str);

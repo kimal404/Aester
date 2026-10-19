@@ -2,7 +2,8 @@
 set -e
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-FAKE_SYSFS="/tmp/aester_fake_sysfs_$$" FAKE_STATE="/tmp/aester_fake_state_$$"
+FAKE_SYSFS="/tmp/aester_fake_sysfs_$$"
+FAKE_STATE="/tmp/aester_fake_state_$$"
 
 cleanup() {
     rm -rf "$FAKE_SYSFS" "$FAKE_STATE"
@@ -26,7 +27,6 @@ echo "[3/4] Menjalankan unit tests core..."
 echo "[4/4] Menjalankan smoke test CLI aesterctl..."
 BIN="$DIR/build/aesterctl"
 
-# version harus sukses exit 0
 VER_OUT="$("$BIN" version)"
 if [ "$VER_OUT" != "1.0.0 1" ]; then
     echo "FAILED: version output tidak cocok: '$VER_OUT'" >&2
@@ -34,20 +34,18 @@ if [ "$VER_OUT" != "1.0.0 1" ]; then
 fi
 echo "PASSED: aesterctl version -> $VER_OUT"
 
-# subperintah Batch B, C, D harus exit 3
 for cmd in "cpufreq get" "cpufreq set 70" "governor list" "governor get" "governor set schedutil" "io list" "io get" "io set none" "apply-saved" "status"; do
     set +e
-    $BIN$cmd >/dev/null 2>/dev/null
+    "$BIN" $cmd >/dev/null 2>/dev/null
     code=$?
     set -e
     if [ "$code" -ne 3 ]; then
-        echo "FAILED: aesterctl $cmd seharusnya exit 3, tapi keluar$code" >&2
+        echo "FAILED: aesterctl $cmd seharusnya exit 3, tapi keluar $code" >&2
         exit 1
     fi
-    echo "PASSED: aesterctl $cmd mengembalikan exit 3 (belum diimplementasi)"
+    echo "PASSED: aesterctl $cmd mengembalikan exit 3"
 done
 
-# argumen salah harus exit 2
 set +e
 "$BIN" invalid-command >/dev/null 2>/dev/null
 code=$?

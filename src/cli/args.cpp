@@ -103,6 +103,15 @@ ParsedArgs parse_args(int argc, char* argv[]) {
 
     if (cmd_str == "status") {
         parsed.command = CommandType::Status;
+        if (argc >= 3) {
+            std::string opt = argv[2];
+            if (opt == "--pretty") {
+                parsed.action = "--pretty";
+            } else {
+                parsed.error_message = "opsi status tidak valid: " + opt + " (gunakan --pretty)";
+                return parsed;
+            }
+        }
         parsed.valid = true;
         return parsed;
     }

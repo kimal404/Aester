@@ -140,7 +140,9 @@ int execute_command(const ParsedArgs& args) {
         }
 
         case CommandType::Status: {
-            auto res = system::get_status_dump();
+            Result<std::string> res = (args.action == "--pretty")
+                ? system::get_status_pretty()
+                : system::get_status_key_value();
             if (!res.ok()) {
                 log::error(res.message());
                 return static_cast<int>(res.code());

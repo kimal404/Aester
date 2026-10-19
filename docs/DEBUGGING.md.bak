@@ -1,16 +1,9 @@
 # Panduan Debugging Backend Aester
 
-## Environment Variables
-- `AESTER_LOG=debug|info|error`: Menentukan level log ke stderr dan file (default: `info`).
-- `AESTER_DRYRUN=1`: Mode simulasi. Operasi penulisan ke sysfs hanya dicatat di log tanpa menulis ke kernel.
-- `AESTER_SYSFS_ROOT=/path`: Menentukan direktori basis sysfs (berguna untuk testing lokal dengan mock sysfs).
-- `AESTER_STATE_DIR=/path`: Menentukan direktori penyimpanan config dan log.
+Environment Variables:
+- AESTER_LOG=debug|info|error (default: info)
+- AESTER_DRYRUN=1 (mode simulasi)
+- AESTER_SYSFS_ROOT=/path (mock sysfs)
+- AESTER_STATE_DIR=/path (mock state)
 
-## Log File
-Log tersimpan di `$AESTER_STATE_DIR/aester.log` (default: `/data/adb/aester/aester.log`).
-File log akan otomatis dipangkas jika ukurannya melebihi 256 KB.
-
-## Dump Sysfs Perangkat Riil
-Jalankan skrip dump di perangkat untuk mencatat kondisi sysfs CPU dan block device:
-`sh ~/Aester/scripts/debug_dump.sh`
-Hasil dump tersimpan di `/storage/emulated/0/Download/aester_dump.txt`.
+Log file tersimpan di $AESTER_STATE_DIR/aester.log (maksimal 256 KB).

@@ -6,17 +6,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -pedantic)
-
-# Coba link statis agar binary portabel di luar Termux
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 
-include_directories(src tests)
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
 
 set(CORE_SOURCES
     src/core/log.cpp
     src/core/sysfs.cpp
     src/core/state.cpp
     src/core/validate.cpp
+)
+
+set(FEATURE_SOURCES
+    src/features/cpufreq/cpufreq.cpp
+    src/features/governor/governor.cpp
+    src/features/io/io.cpp
+    src/features/system/system.cpp
 )
 
 set(CLI_SOURCES
@@ -26,10 +35,30 @@ set(CLI_SOURCES
 
 add_executable(aesterctl
     src/main.cpp
-    ${CORE_SOURCES}${CLI_SOURCES}
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
+    ${CLI_SOURCES}
 )
 
 add_executable(test_validate
     tests/test_validate.cpp
     ${CORE_SOURCES}
+)
+
+add_executable(test_cpufreq
+    tests/test_cpufreq.cpp
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
+)
+
+add_executable(test_governor
+    tests/test_governor.cpp
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
+)
+
+add_executable(test_io
+    tests/test_io.cpp
+    ${CORE_SOURCES}
+    ${FEATURE_SOURCES}
 )

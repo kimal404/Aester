@@ -33,9 +33,10 @@ for p in 0 4 7; do
     esac
 done
 
-mkdir -p "$DEST/block/sda/queue" "$DEST/block/sdb/queue" "$DEST/block/loop0/queue" "$DEST/block/zram0"
+mkdir -p "$DEST/block/sdb/queue" "$DEST/block/sda/queue" "$DEST/block/mtdblock0/queue" "$DEST/block/loop0/queue" "$DEST/block/zram0"
 echo "[mq-deadline] none" > "$DEST/block/sda/queue/scheduler"
 echo "[mq-deadline] none kyber" > "$DEST/block/sdb/queue/scheduler"
+echo "[none]" > "$DEST/block/mtdblock0/queue/scheduler"
 echo "none" > "$DEST/block/loop0/queue/scheduler"
 
 echo "Mock sysfs berhasil disiapkan di $DEST"

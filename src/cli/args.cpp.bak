@@ -4,102 +4,111 @@ namespace aester {
 namespace cli {
 
 ParsedArgs parse_args(int argc, char* argv[]) {
-    ParsedArgs res;
+    ParsedArgs parsed;
+    parsed.valid = false;
+
     if (argc < 2) {
-        res.valid = false;
-        res.error_message = "argumen tidak lengkap (butuh subperintah)";
-        return res;
+        parsed.error_message = "argumen tidak cukup. Gunakan: aesterctl <command> [action] [param]";
+        return parsed;
     }
 
-    std::string cmd = argv[1];
-    if (cmd == "version") {
-        res.command = CommandType::Version;
-        res.valid = true;
-        return res;
-    }
-    if (cmd == "apply-saved") {
-        res.command = CommandType::ApplySaved;
-        res.valid = true;
-        return res;
-    }
-    if (cmd == "status") {
-        res.command = CommandType::Status;
-        res.valid = true;
-        return res;
-    }
-    if (cmd == "cpufreq") {
-        res.command = CommandType::CpuFreq;
-        if (argc < 3) {
-            res.valid = false;
-            res.error_message = "cpufreq butuh aksi get|set";
-            return res;
-        }
-        res.action = argv[2];
-        if (res.action == "set") {
-            if (argc < 4) {
-                res.valid = false;
-                res.error_message = "cpufreq set butuh nilai 40|50|60|70|80|90|off";
-                return res;
-            }
-            res.param = argv[3];
-        } else if (res.action != "get") {
-            res.valid = false;
-            res.error_message = "aksi cpufreq tidak valid: " + res.action;
-            return res;
-        }
-        res.valid = true;
-        return res;
-    }
-    if (cmd == "governor") {
-        res.command = CommandType::Governor;
-        if (argc < 3) {
-            res.valid = false;
-            res.error_message = "governor butuh aksi list|get|set";
-            return res;
-        }
-        res.action = argv[2];
-        if (res.action == "set") {
-            if (argc < 4) {
-                res.valid = false;
-                res.error_message = "governor set butuh nama governor";
-                return res;
-            }
-            res.param = argv[3];
-        } else if (res.action != "list" && res.action != "get") {
-            res.valid = false;
-            res.error_message = "aksi governor tidak valid: " + res.action;
-            return res;
-        }
-        res.valid = true;
-        return res;
-    }
-    if (cmd == "io") {
-        res.command = CommandType::Io;
-        if (argc < 3) {
-            res.valid = false;
-            res.error_message = "io butuh aksi list|get|set";
-            return res;
-        }
-        res.action = argv[2];
-        if (res.action == "set") {
-            if (argc < 4) {
-                res.valid = false;
-                res.error_message = "io set butuh nama scheduler";
-                return res;
-            }
-            res.param = argv[3];
-        } else if (res.action != "list" && res.action != "get") {
-            res.valid = false;
-            res.error_message = "aksi io tidak valid: " + res.action;
-            return res;
-        }
-        res.valid = true;
-        return res;
+    std::string cmd_str = argv[1];
+
+    if (cmd_str == "version") {
+        parsed.command = CommandType::Version;
+        parsed.valid = true;
+        return parsed;
     }
 
-    res.valid = false;
-    res.error_message = "subperintah tidak dikenal: " + cmd;
-    return res;
+    if (cmd_str == "cpufreq") {
+        parsed.command = CommandType::CpuFreq;
+        if (argc < 3) {
+            parsed.error_message = "cpufreq memerlukan aksi (get, set)";
+            return parsed;
+        }
+        std::string action = argv[2];
+        parsed.action = action;
+        if (action == "get") {
+            parsed.valid = true;
+            return parsed;
+        }
+        if (action == "set") {
+            if (argc < 4) {
+                parsed.error_message = "cpufreq set memerlukan nilai (40..90 atau off)";
+                return parsed;
+            }
+            parsed.param = argv[3];
+            parsed.valid = true;
+            return parsed;
+        }
+        parsed.error_message = "aksi cpufreq tidak valid: " + action;
+        return parsed;
+    }
+
+    if (cmd_str == "governor") {
+        parsed.command = CommandType::Governor;
+        if (argc < 3) {
+            parsed.error_message = "governor memerlukan aksi (list, get, set, reset)";
+            return parsed;
+        }
+        std::string action = argv[2];
+        parsed.action = action;
+        if (action == "list" || action == "get" || action == "reset") {
+            parsed.valid = true;
+            return parsed;
+        }
+        if (action == "set") {
+            if (argc < 4) {
+                parsed.error_message = "governor set memerlukan nama governor";
+                return parsed;
+            }
+            parsed.param = argv[3];
+            parsed.valid = true;
+            return parsed;
+        }
+        parsed.error_message = "aksi governor tidak valid: " + action;
+        return parsed;
+    }
+
+    if (cmd_str == "io") {
+        parsed.command = CommandType::Io;
+        if (argc < 3) {
+            parsed.error_message = "io memerlukan aksi (list, get, set, reset)";
+            return parsed;
+        }
+        std::string action = argv[2];
+        parsed.action = action;
+        if (action == "list" || action == "get" || action == "reset") {
+            parsed.valid = true;
+            return parsed;
+        }
+        if (action == "set") {
+            if (argc < 4) {
+                parsed.error_message = "io set memerlukan nama scheduler";
+                return parsed;
+            }
+            parsed.param = argv[3];
+            parsed.valid = true;
+            return parsed;
+        }
+        parsed.error_message = "aksi io tidak valid: " + action;
+        return parsed;
+    }
+
+    if (cmd_str == "apply-saved") {
+        parsed.command = CommandType::ApplySaved;
+        parsed.valid = true;
+        return parsed;
+    }
+
+    if (cmd_str == "status") {
+        parsed.command = CommandType::Status;
+        parsed.valid = true;
+        return parsed;
+    }
+
+    parsed.error_message = "perintah tidak dikenal: " + cmd_str;
+    return parsed;
 }
 
 } // namespace cli
