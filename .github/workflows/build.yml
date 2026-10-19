@@ -43,13 +43,15 @@ jobs:
           zip -r9 ../dist/aester-backend-1.0.0.zip . -x "bin/.keep"
           cd ..
 
-      - name: Publish / Overwrite Continuous Release
+      - name: Publish Continuous Release
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Buat atau timpa tag release 'nightly' dengan binary & zip terbaru
-          gh release create nightly dist/aester-backend-1.0.0.zip build/aesterctl \
-            --title "Continuous Build (Latest)" \
-            --notes "Auto-built from commit ${{ github.sha }}" \
-            --clobber || \
-          gh release upload nightly dist/aester-backend-1.0.0.zip build/aesterctl --clobber
+        with:
+          tag_name: nightly
+          name: "Continuous Build (Latest)"
+          body: "Auto-built from commit ${{ github.sha }}"
+          prerelease: true
+          files: |
+            dist/aester-backend-1.0.0.zip
+            build/aesterctl
