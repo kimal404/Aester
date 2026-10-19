@@ -1,4 +1,4 @@
-#include "tests/harness.hpp"
+#include "harness.hpp"
 #include "core/validate.hpp"
 
 using namespace aester::validate;
