@@ -19,8 +19,8 @@ bool verify_with_retry(const std::string& path, uint64_t target_khz, int retries
     for (int i = 0; i < retries; ++i) {
         usleep(delay_us);
         auto res = sysfs::read_u64(path);
-        // Valid jika nilai tepat cocok atau terpotong batas thermal PPM (aktual <= target)
-        if (res.ok() && (res.value() == target_khz || res.value() <= target_khz)) {
+        // Valid jika nilai cocok atau terpotong thermal driver PPM (aktual <= target)
+        if (res.ok() && res.value() > 0 && (res.value() == target_khz || res.value() <= target_khz)) {
             return true;
         }
     }
@@ -134,7 +134,7 @@ Result<std::string> set_limit(const std::string& val_str) {
             }
         }
 
-        auto write_res = sysfs::write_u64(cur_max_path, target_khz);
+        auto write_res = sysfs::write_text(cur_max_path, std::to_string(target_khz));
         if (!write_res.ok()) {
             return Result<std::string>::failure(ExitCode::WriteOrVerifyFailed, pol + ": gagal menulis scaling_max_freq");
         }
