@@ -1,0 +1,12 @@
+# Aester Backend Module
+
+Backend modul root (Magisk/KernelSU/APatch) berbasis C++17 untuk tuning CPU dan I/O pada perangkat MediaTek (Dimensity 8400 / POCO X7 Pro).
+
+## Kebutuhan Toolchain di Termux
+pkg install clang make cmake zip
+
+## Menjalankan Unit Test
+sh tests/run.sh
+
+## Membangun & Mengemas Modul
+sh scripts/package.sh

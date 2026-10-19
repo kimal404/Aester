@@ -1,0 +1,3 @@
+#!/system/bin/sh
+# Hapus state data dan log saat modul di-uninstall
+rm -rf /data/adb/aester

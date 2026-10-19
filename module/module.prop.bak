@@ -1,0 +1,6 @@
+id=aester
+name=Aester Kernel Optimizer
+version=1.0.0
+versionCode=100
+author=kimal404
+description=Backend modul root untuk kontrol CPU Freq, Governor, dan I/O Scheduler di Dimensity 8400.

@@ -1,0 +1,12 @@
+#!/system/bin/sh
+while [ "$(getprop sys.boot_completed)" != "1" ]; do
+    sleep 2
+done
+
+# Delay tambahan untuk memastikan kernel governor stock selesai inisialisasi
+sleep 5
+
+BIN="/data/adb/modules/aester/bin/aesterctl"
+if [ -x "$BIN" ]; then
+    "$BIN" apply-saved
+fi
