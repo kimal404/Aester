@@ -69,7 +69,7 @@ while true; do
         fi
     fi
 
-    sleep 5
+    sleep 12
 done
 
 # 4. Unduh via Termux curl & Timpa Binary via Root
