@@ -42,7 +42,6 @@ jobs:
         run: |
           mkdir -p module/bin dist
           cp build/aesterctl build/aesterd module/bin/
-            build/aesterd
           chmod 755 module/bin/*
           
           cd module
