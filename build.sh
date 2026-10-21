@@ -88,3 +88,14 @@ echo ">> Verifikasi binary aktif:"
 su -c "/data/adb/modules/aester/bin/aesterctl version"
 
 echo "\nSemua proses selesai! Binary aesterctl siap digunakan."
+
+# Unduh dan salin aesterd ke folder assets AndroidIDE
+APP_ASSETS="/storage/emulated/0/AndroidIDEProjects/Aester/app/src/main/assets"
+if [ -d "$APP_ASSETS" ]; then
+    echo "\n[5/5] Mengunduh binary daemon 'aesterd' ke assets AndroidIDE..."
+    curl -sL "https://github.com/${REPO}/releases/download/nightly/aesterd" -o "$APP_ASSETS/aesterd" || {
+        echo "[WARN] Gagal mengunduh aesterd via curl."
+    }
+    chmod 644 "$APP_ASSETS/aesterd" 2>/dev/null || true
+    echo ">> aesterd tersimpan di: $APP_ASSETS/aesterd"
+fi
