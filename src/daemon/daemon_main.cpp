@@ -9,12 +9,11 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <map>
+#include <cstdlib>
 
 #define SOCKET_NAME "aester_daemon"
 #define CPU_BASE "/sys/devices/system/cpu/cpufreq"
 
-// Helper pembacaan sysfs satu baris
 static std::string read_sysfs(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) return "";
@@ -26,12 +25,43 @@ static std::string read_sysfs(const std::string& path) {
     return line;
 }
 
-// Helper penulisan sysfs
 static bool write_sysfs(const std::string& path, const std::string& val) {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << val << std::endl;
     return file.good();
+}
+
+// Menulis sysfs dengan penanganan kuncian chmod dan thermal bypass mi_thermald
+static bool write_sysfs_with_bypass(const std::string& path, long target_freq) {
+    std::string val_str = std::to_string(target_freq);
+
+    // 1. Buka proteksi berkas ke mode tulis
+    chmod(path.c_str(), 0644);
+    write_sysfs(path, val_str);
+
+    // 2. Cek apakah kernel menerima langsung
+    std::string rb = read_sysfs(path);
+    if (!rb.empty() && std::stol("0" + rb) == target_freq) {
+        chmod(path.c_str(), 0444); // Kunci read-only
+        return true;
+    }
+
+    // 3. Jika nilai terpotong oleh QoS daemon vendor, lakukan thermal bypass window
+    system("killall -STOP mi_thermald 2>/dev/null");
+    chmod(path.c_str(), 0644);
+    write_sysfs(path, val_str);
+    rb = read_sysfs(path);
+    system("killall -CONT mi_thermald 2>/dev/null");
+
+    if (!rb.empty() && std::stol("0" + rb) == target_freq) {
+        chmod(path.c_str(), 0444); // Kunci agar vendor tidak menimpa balik
+        return true;
+    }
+
+    // Kembalikan ke izin standar jika gagal
+    chmod(path.c_str(), 0644);
+    return false;
 }
 
 struct PolicySnapshot {
@@ -46,7 +76,6 @@ struct PolicySnapshot {
     std::vector<std::string> governors;
 };
 
-// Deteksi snapshot topologi perangkat secara dinamis
 static std::vector<PolicySnapshot> detect_cpu_topology() {
     std::vector<PolicySnapshot> list;
     DIR* dir = opendir(CPU_BASE);
@@ -60,14 +89,11 @@ static std::vector<PolicySnapshot> detect_cpu_topology() {
 
             PolicySnapshot snap;
             snap.id = p_name;
-
-            // related_cpus mencakup core offline; fallback ke affected_cpus
             snap.cores = read_sysfs(p_path + "/related_cpus");
             if (snap.cores.empty()) {
                 snap.cores = read_sysfs(p_path + "/affected_cpus");
             }
 
-            // Baca frekuensi yang didukung hardware
             std::string f_str = read_sysfs(p_path + "/scaling_available_frequencies");
             std::stringstream ss(f_str);
             long f;
@@ -79,12 +105,10 @@ static std::vector<PolicySnapshot> detect_cpu_topology() {
             snap.min_freq = std::stol("0" + read_sysfs(p_path + "/scaling_min_freq"));
             snap.max_freq = std::stol("0" + read_sysfs(p_path + "/scaling_max_freq"));
 
-            // Baca frekuensi aktif
             std::string cur = read_sysfs(p_path + "/scaling_cur_freq");
             if (cur.empty()) cur = read_sysfs(p_path + "/cpuinfo_cur_freq");
             snap.cur_freq = std::stol("0" + cur);
 
-            // Baca governor aktif dan yang tersedia
             snap.governor = read_sysfs(p_path + "/scaling_governor");
             std::string g_str = read_sysfs(p_path + "/scaling_available_governors");
             std::stringstream g_ss(g_str);
@@ -98,14 +122,12 @@ static std::vector<PolicySnapshot> detect_cpu_topology() {
     }
     closedir(dir);
 
-    // Urutkan cluster dari kapasitas terendah ke tertinggi (Little -> Big -> Prime)
     std::sort(list.begin(), list.end(), [](const PolicySnapshot& a, const PolicySnapshot& b) {
         long max_a = a.freqs.empty() ? 0 : a.freqs.back();
         long max_b = b.freqs.empty() ? 0 : b.freqs.back();
         return max_a < max_b;
     });
 
-    // Penamaan dinamis tanpa hardcode
     for (size_t i = 0; i < list.size(); ++i) {
         if (list.size() == 1) {
             list[i].label = "Single Cluster (Cores " + list[i].cores + ")";
@@ -124,13 +146,9 @@ static std::vector<PolicySnapshot> detect_cpu_topology() {
     return list;
 }
 
-// Router Perintah Protokol IPC
 static std::string handle_ipc_command(const std::string& cmd) {
-    if (cmd == "PING") {
-        return "PONG\n";
-    }
+    if (cmd == "PING") return "PONG\n";
 
-    // 1. Snapshot Topologi Lengkap (JSON)
     if (cmd == "CPU:TOPOLOGY") {
         auto list = detect_cpu_topology();
         std::string json = "[";
@@ -154,7 +172,6 @@ static std::string handle_ipc_command(const std::string& cmd) {
         return json;
     }
 
-    // 2. Polling Realtime Ringan (Format: policy0:1200000,policy4:1800000)
     if (cmd == "CPU:REALTIME") {
         auto list = detect_cpu_topology();
         std::string out;
@@ -164,72 +181,68 @@ static std::string handle_ipc_command(const std::string& cmd) {
         return out + "\n";
     }
 
-    // 3. Tulis Frekuensi Aman (Safe Clamping + Readback Verification)
+    // Urutan tulis aman + thermal bypass + sysfs lock
     if (cmd.rfind("CPU:FREQ:SET ", 0) == 0) {
         std::stringstream ss(cmd.substr(13));
         std::string policy, type;
         long target_freq;
         if (!(ss >> policy >> type >> target_freq)) return "ERR Format tidak valid\n";
 
-        std::string min_path = std::string(CPU_BASE) + "/" + policy + "/scaling_min_freq";
-        std::string max_path = std::string(CPU_BASE) + "/" + policy + "/scaling_max_freq";
+        std::string min_p = std::string(CPU_BASE) + "/" + policy + "/scaling_min_freq";
+        std::string max_p = std::string(CPU_BASE) + "/" + policy + "/scaling_max_freq";
 
-        long cur_min = std::stol("0" + read_sysfs(min_path));
-        long cur_max = std::stol("0" + read_sysfs(max_path));
+        chmod(min_p.c_str(), 0644);
+        chmod(max_p.c_str(), 0644);
+
+        long cur_min = std::stol("0" + read_sysfs(min_p));
+        long cur_max = std::stol("0" + read_sysfs(max_p));
 
         if (type == "max") {
-            // Jika max baru lebih kecil dari min saat ini, turunkan min dulu
+            // Jika max baru lebih kecil dari min saat ini, turunkan min terlebih dahulu
             if (target_freq < cur_min) {
-                write_sysfs(min_path, std::to_string(target_freq));
+                write_sysfs_with_bypass(min_p, target_freq);
             }
-            if (!write_sysfs(max_path, std::to_string(target_freq))) {
-                write_sysfs(min_path, std::to_string(cur_min)); // Rollback jika gagal
-                return "ERR Gagal menulis scaling_max_freq\n";
-            }
-            // Verifikasi readback
-            long readback = std::stol("0" + read_sysfs(max_path));
-            if (readback != target_freq) {
-                write_sysfs(max_path, std::to_string(cur_max)); // Rollback
-                write_sysfs(min_path, std::to_string(cur_min));
+            if (!write_sysfs_with_bypass(max_p, target_freq)) {
+                write_sysfs_with_bypass(min_p, cur_min); // Rollback
                 return "ERR Verifikasi kernel gagal\n";
             }
+            chmod(min_p.c_str(), 0444);
+            chmod(max_p.c_str(), 0444);
+            return "OK\n";
         } else if (type == "min") {
-            // Jika min baru lebih besar dari max saat ini, naikkan max dulu
+            // Jika min baru lebih besar dari max saat ini, naikkan max terlebih dahulu
             if (target_freq > cur_max) {
-                write_sysfs(max_path, std::to_string(target_freq));
+                write_sysfs_with_bypass(max_p, target_freq);
             }
-            if (!write_sysfs(min_path, std::to_string(target_freq))) {
-                write_sysfs(max_path, std::to_string(cur_max)); // Rollback jika gagal
-                return "ERR Gagal menulis scaling_min_freq\n";
-            }
-            // Verifikasi readback
-            long readback = std::stol("0" + read_sysfs(min_path));
-            if (readback != target_freq) {
-                write_sysfs(min_path, std::to_string(cur_min)); // Rollback
-                write_sysfs(max_path, std::to_string(cur_max));
+            if (!write_sysfs_with_bypass(min_p, target_freq)) {
+                write_sysfs_with_bypass(max_p, cur_max); // Rollback
                 return "ERR Verifikasi kernel gagal\n";
             }
+            chmod(min_p.c_str(), 0444);
+            chmod(max_p.c_str(), 0444);
+            return "OK\n";
         }
-        return "OK\n";
+        return "ERR Tipe frekuensi salah\n";
     }
 
-    // 4. Ubah Governor
     if (cmd.rfind("CPU:GOV:SET ", 0) == 0) {
         std::stringstream ss(cmd.substr(12));
         std::string policy, gov;
         if (!(ss >> policy >> gov)) return "ERR Format tidak valid\n";
         std::string path = std::string(CPU_BASE) + "/" + policy + "/scaling_governor";
-        if (write_sysfs(path, gov)) return "OK\n";
+        chmod(path.c_str(), 0644);
+        if (write_sysfs(path, gov)) {
+            chmod(path.c_str(), 0444);
+            return "OK\n";
+        }
         return "ERR Gagal menerapkan governor\n";
     }
 
-    // 5. Ambil Daftar Governor Tunables
     if (cmd.rfind("CPU:GOV:TUNABLES ", 0) == 0) {
         std::string policy = cmd.substr(17);
         std::string gov = read_sysfs(std::string(CPU_BASE) + "/" + policy + "/scaling_governor");
-        
-        // Cek path per-policy lebih dulu, lalu fallback ke global governor directory
         std::string tun_dir = std::string(CPU_BASE) + "/" + policy + "/" + gov;
+
         DIR* dir = opendir(tun_dir.c_str());
         if (!dir) {
             tun_dir = std::string(CPU_BASE) + "/" + gov;
@@ -257,7 +270,6 @@ static std::string handle_ipc_command(const std::string& cmd) {
         return json;
     }
 
-    // 6. Tulis Governor Tunable
     if (cmd.rfind("CPU:GOV:TUNABLE:SET ", 0) == 0) {
         std::stringstream ss(cmd.substr(20));
         std::string policy, key, val;
@@ -269,6 +281,7 @@ static std::string handle_ipc_command(const std::string& cmd) {
             fpath = std::string(CPU_BASE) + "/" + gov + "/" + key;
         }
 
+        chmod(fpath.c_str(), 0644);
         if (write_sysfs(fpath, val)) return "OK\n";
         return "ERR Gagal menulis tunable sysfs\n";
     }
@@ -277,7 +290,6 @@ static std::string handle_ipc_command(const std::string& cmd) {
 }
 
 int main() {
-    // Menjalankan proses secara mandiri sebagai system daemon (PID 1)
     if (daemon(1, 0) < 0) return 1;
 
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -286,7 +298,7 @@ int main() {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    addr.sun_path[0] = '\0'; // Abstract namespace socket (\0aester_daemon)
+    addr.sun_path[0] = '\0';
     strncpy(addr.sun_path + 1, SOCKET_NAME, sizeof(addr.sun_path) - 2);
 
     socklen_t addr_len = sizeof(sa_family_t) + 1 + strlen(SOCKET_NAME);
@@ -312,7 +324,6 @@ int main() {
         }
         close(client_fd);
     }
-
     close(server_fd);
     return 0;
 }
