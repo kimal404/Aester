@@ -35,8 +35,8 @@ jobs:
                 -DANDROID_PLATFORM=android-29 \
                 -DCMAKE_BUILD_TYPE=Release \
                 ..
-          ninja aesterctl
-          file aesterctl
+          ninja aesterctl aesterd
+          file aesterctl aesterd
 
       - name: Assemble Flashable ZIP
         run: |

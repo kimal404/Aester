@@ -1,7 +1,0 @@
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/aesterctl.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/test_validate.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/test_cpufreq.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/test_governor.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/test_io.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/edit_cache.dir
-/data/data/com.termux/files/home/Aester/build/CMakeFiles/rebuild_cache.dir
