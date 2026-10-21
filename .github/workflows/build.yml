@@ -35,15 +35,15 @@ jobs:
                 -DANDROID_PLATFORM=android-29 \
                 -DCMAKE_BUILD_TYPE=Release \
                 ..
-          ninja aesterctl aesterd aesterd
-          file aesterctl aesterd aesterd
+          ninja aesterctl aesterd aesterd aesterd
+          file aesterctl aesterd aesterd aesterd
 
       - name: Assemble Flashable ZIP
         run: |
           mkdir -p module/bin dist
-          cp build/aesterctl module/bin/
+          cp build/aesterctl build/aesterd module/bin/
             build/aesterd
-          chmod 755 module/bin/aesterctl
+          chmod 755 module/bin/*
           
           cd module
           zip -r9 ../dist/aester-backend-1.0.0.zip . -x "bin/.keep"
@@ -61,4 +61,5 @@ jobs:
           files: |
             dist/aester-backend-1.0.0.zip
             build/aesterctl
+            build/aesterd
             build/aesterd
