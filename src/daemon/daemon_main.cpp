@@ -64,13 +64,18 @@ std::string handle_command(const std::string& cmd) {
 }
 
 int main() {
+    // Melepaskan proses ke background sebagai system daemon mandiri (PID 1 init)
+    if (daemon(1, 0) < 0) {
+        return 1;
+    }
+
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (server_fd < 0) return 1;
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    addr.sun_path[0] = '\0'; // Abstract namespace: bebas izin berkas .sock
+    addr.sun_path[0] = '\0';
     strncpy(addr.sun_path + 1, SOCKET_NAME, sizeof(addr.sun_path) - 2);
 
     socklen_t addr_len = sizeof(sa_family_t) + 1 + strlen(SOCKET_NAME);
