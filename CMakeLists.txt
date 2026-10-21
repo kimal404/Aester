@@ -33,6 +33,7 @@ set(CLI_SOURCES
     src/cli/commands.cpp
 )
 
+# Binary CLI Root
 add_executable(aesterctl
     src/main.cpp
     ${CORE_SOURCES}
@@ -40,25 +41,15 @@ add_executable(aesterctl
     ${CLI_SOURCES}
 )
 
-add_executable(test_validate
-    tests/test_validate.cpp
-    ${CORE_SOURCES}
-)
-
-add_executable(test_cpufreq
-    tests/test_cpufreq.cpp
+# Binary Daemon Background IPC
+add_executable(aesterd
+    src/daemon/daemon_main.cpp
     ${CORE_SOURCES}
     ${FEATURE_SOURCES}
 )
 
-add_executable(test_governor
-    tests/test_governor.cpp
-    ${CORE_SOURCES}
-    ${FEATURE_SOURCES}
-)
-
-add_executable(test_io
-    tests/test_io.cpp
-    ${CORE_SOURCES}
-    ${FEATURE_SOURCES}
-)
+# Test Binaries
+add_executable(test_validate tests/test_validate.cpp ${CORE_SOURCES})
+add_executable(test_cpufreq tests/test_cpufreq.cpp ${CORE_SOURCES} ${FEATURE_SOURCES})
+add_executable(test_governor tests/test_governor.cpp ${CORE_SOURCES} ${FEATURE_SOURCES})
+add_executable(test_io tests/test_io.cpp ${CORE_SOURCES} ${FEATURE_SOURCES})
